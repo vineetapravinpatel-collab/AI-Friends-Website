@@ -55,9 +55,10 @@ HTML = """
 <meta name="viewport"
       content="width=device-width, initial-scale=1">
 
-<title>AI Friends</title>
+<title>pravin_abhi</title>
 
-<style>
+<meta name="description" content="pravin_abhi - AI Friends, a group chat with AI friends Astra, Nova and Orion.">
+<meta name="robots" content="index, follow">
 
 * {
     box-sizing: border-box;
@@ -150,7 +151,8 @@ button {
 <body>
 
 <div class="header">
-    🤖 AI FRIENDS
+    🤖 AI Friends
+
 </div>
 
 <div class="team">
