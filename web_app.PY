@@ -60,6 +60,8 @@ HTML = """
 <meta name="description" content="pravin_abhi - AI Friends, a group chat with AI friends Astra, Nova and Orion.">
 <meta name="robots" content="index, follow">
 
+<style>
+
 * {
     box-sizing: border-box;
 }
