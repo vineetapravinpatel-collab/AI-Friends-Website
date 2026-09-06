@@ -1,8 +1,17 @@
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 from flask import Flask, request, jsonify, render_template_string
 from google import genai
 
+
+# ============================================================
+# FLASK APP
+# ============================================================
+
 app = Flask(__name__)
+
 
 # ============================================================
 # GEMINI
@@ -50,15 +59,13 @@ AI_INFO = {
 HTML = """
 <!DOCTYPE html>
 <html>
+
 <head>
 
 <meta name="viewport"
       content="width=device-width, initial-scale=1">
 
-<title>pravin_abhi</title>
-
-<meta name="description" content="pravin_abhi - AI Friends, a group chat with AI friends Astra, Nova and Orion.">
-<meta name="robots" content="index, follow">
+<title>AI Friends</title>
 
 <style>
 
@@ -101,6 +108,7 @@ body {
     height: calc(100vh - 170px);
     overflow-y: auto;
     padding: 15px;
+    padding-bottom: 80px;
 }
 
 .message {
@@ -135,6 +143,7 @@ input {
     padding: 13px;
     border-radius: 12px;
     border: none;
+    outline: none;
     font-size: 16px;
 }
 
@@ -150,12 +159,14 @@ button {
 
 </head>
 
+
 <body>
 
-<div class="header">
-    🤖 AI Friends
 
+<div class="header">
+    🤖 AI FRIENDS
 </div>
+
 
 <div class="team">
 
@@ -165,14 +176,21 @@ button {
 
 </div>
 
+
 <div id="chat" class="chat">
 
     <div class="message">
-        <div class="name">🤖 AI Friends</div>
+
+        <div class="name">
+            🤖 AI Friends
+        </div>
+
         Send a message to start chatting!
+
     </div>
 
 </div>
+
 
 <div class="input-area">
 
@@ -182,12 +200,15 @@ button {
         onkeydown="if(event.key==='Enter') sendMessage()"
     >
 
-    <button onclick="sendMessage()">➤</button>
+    <button onclick="sendMessage()">
+        ➤
+    </button>
 
 </div>
 
 
 <script>
+
 
 async function sendMessage() {
 
@@ -199,7 +220,9 @@ async function sendMessage() {
 
     if (!text) return;
 
+
     input.value = "";
+
 
     addMessage(
         "👤 You",
@@ -207,12 +230,14 @@ async function sendMessage() {
         true
     );
 
+
     addMessage(
         "🤖 AI Friends",
         "Thinking...",
         false,
         "thinking"
     );
+
 
     try {
 
@@ -232,14 +257,18 @@ async function sendMessage() {
 
             });
 
+
         const data =
             await response.json();
+
 
         const thinking =
             document.getElementById("thinking");
 
+
         if (thinking)
             thinking.remove();
+
 
         for (const reply of data.replies) {
 
@@ -248,22 +277,28 @@ async function sendMessage() {
                 reply.text,
                 false
             );
+
         }
+
 
     } catch (error) {
 
         const thinking =
             document.getElementById("thinking");
 
+
         if (thinking)
             thinking.remove();
+
 
         addMessage(
             "⚠️ Error",
             "Could not connect to AI Friends.",
             false
         );
+
     }
+
 }
 
 
@@ -277,15 +312,19 @@ function addMessage(
     const chat =
         document.getElementById("chat");
 
+
     const div =
         document.createElement("div");
+
 
     div.className =
         "message" +
         (user ? " user" : "");
 
+
     if (id)
         div.id = id;
+
 
     div.innerHTML =
         "<div class='name'>" +
@@ -295,10 +334,13 @@ function addMessage(
         escapeHtml(text) +
         "</div>";
 
+
     chat.appendChild(div);
+
 
     chat.scrollTop =
         chat.scrollHeight;
+
 }
 
 
@@ -307,14 +349,21 @@ function escapeHtml(text) {
     const div =
         document.createElement("div");
 
-    div.textContent = text;
+
+    div.textContent =
+        text;
+
 
     return div.innerHTML;
+
 }
+
 
 </script>
 
+
 </body>
+
 </html>
 """
 
@@ -330,59 +379,45 @@ def home():
 
 
 # ============================================================
-# CHAT API
+# AI RESPONSE FUNCTION
 # ============================================================
 
-@app.route("/chat", methods=["POST"])
-def chat():
+def get_ai_reply(name, info, user_text):
 
-    data = request.get_json()
-
-    user_text = data.get(
-        "message",
-        ""
-    ).strip()
-
-    if not user_text:
-        return jsonify({
-            "replies": []
-        })
-
-    if client is None:
-
-        return jsonify({
-            "replies": [
-                {
-                    "name": "System",
-                    "avatar": "⚠️",
-                    "text": "GEMINI_API_KEY is not configured."
-                }
-            ]
-        })
-
-    replies = []
-
-    for name, info in AI_INFO.items():
-
-        prompt = f"""
+    prompt = f"""
 You are {name}, one member of AI Friends.
 
 Personality:
 {info["personality"]}
 
-Reply naturally and helpfully.
-The user is chatting with a group of three AI friends.
+You are chatting in a group with the user and two other AI friends.
+
+Reply naturally, clearly and helpfully.
 
 User message:
 {user_text}
 """
 
+
+    # ========================================================
+    # RETRY SYSTEM
+    # ========================================================
+
+    max_retries = 3
+
+
+    for attempt in range(max_retries):
+
         try:
 
             response = client.models.generate_content(
+
                 model=info["model"],
+
                 contents=prompt
+
             )
+
 
             text = getattr(
                 response,
@@ -390,39 +425,144 @@ User message:
                 None
             )
 
+
             if not text:
+
                 text = "I couldn't generate a response."
+
+
+            return {
+                "name": name,
+                "avatar": info["avatar"],
+                "text": text
+            }
+
 
         except Exception as error:
 
             error_text = str(error)
 
+
+            # Temporary server overload
             if "503" in error_text:
 
-                text = (
-                    "I'm temporarily busy. "
-                    "Please try again."
-                )
+                if attempt < max_retries - 1:
 
+                    time.sleep(1.5)
+
+                    continue
+
+
+                return {
+                    "name": name,
+                    "avatar": info["avatar"],
+                    "text": "I'm temporarily busy. Please try again."
+                }
+
+
+            # Rate limit
+            elif "429" in error_text:
+
+                if attempt < max_retries - 1:
+
+                    time.sleep(2)
+
+                    continue
+
+
+                return {
+                    "name": name,
+                    "avatar": info["avatar"],
+                    "text": "Too many requests right now. Please try again."
+                }
+
+
+            # Model not found
             elif "404" in error_text:
 
-                text = (
-                    "Model not found: "
-                    + info["model"]
-                )
+                return {
+                    "name": name,
+                    "avatar": info["avatar"],
+                    "text": "Model not found: " + info["model"]
+                }
 
+
+            # Other error
             else:
 
-                text = (
-                    "Error: "
-                    + error_text
-                )
+                return {
+                    "name": name,
+                    "avatar": info["avatar"],
+                    "text": "Something went wrong. Please try again."
+                }
 
-        replies.append({
-            "name": name,
-            "avatar": info["avatar"],
-            "text": text
+
+# ============================================================
+# CHAT API
+# ============================================================
+
+@app.route("/chat", methods=["POST"])
+def chat():
+
+    data = request.get_json() or {}
+
+
+    user_text = data.get(
+        "message",
+        ""
+    ).strip()
+
+
+    if not user_text:
+
+        return jsonify({
+            "replies": []
         })
+
+
+    if client is None:
+
+        return jsonify({
+
+            "replies": [
+
+                {
+                    "name": "System",
+                    "avatar": "⚠️",
+                    "text": "GEMINI_API_KEY is not configured."
+                }
+
+            ]
+
+        })
+
+
+    # ========================================================
+    # PARALLEL AI REQUESTS
+    # ========================================================
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+
+        futures = [
+
+            executor.submit(
+                get_ai_reply,
+                name,
+                info,
+                user_text
+            )
+
+            for name, info in AI_INFO.items()
+
+        ]
+
+
+        # Keep Astra → Nova → Orion order
+        replies = [
+            future.result()
+            for future in futures
+        ]
+
 
     return jsonify({
         "replies": replies
@@ -437,20 +577,28 @@ if __name__ == "__main__":
 
     print()
     print("====================================")
-    print("       AI FRIENDS WEB")
+    print("          AI FRIENDS WEB")
     print("====================================")
 
-    print("Open on this PC:")
-    print("http://127.0.0.1:5000")
+    print("Server starting...")
 
-    print()
-    print("For phone on same Wi-Fi:")
-    print("http://YOUR-PC-IP:5000")
+    port = int(
+        os.environ.get(
+            "PORT",
+            8000
+        )
+    )
+
+
+    print(
+        f"Running on port {port}"
+    )
 
     print("====================================")
+
 
     app.run(
-    host="0.0.0.0",
-    port=8000,
-    debug=False
-)
+        host="0.0.0.0",
+        port=port,
+        debug=False
+    )````````````````````````````````
