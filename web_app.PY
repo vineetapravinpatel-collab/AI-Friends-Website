@@ -3,7 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, request, jsonify, render_template_string
-from google import genai
+from openai import OpenAI
 
 
 # ============================================================
@@ -14,17 +14,20 @@ app = Flask(__name__)
 
 
 # ============================================================
-# GEMINI
+# CEREBRAS
 # ============================================================
 
-API_KEY = os.environ.get("GEMINI_API_KEY")
+API_KEY = os.environ.get("CEREBRAS_API_KEY")
 
 if not API_KEY:
-    print("ERROR: GEMINI_API_KEY NOT FOUND")
+    print("ERROR: CEREBRAS_API_KEY NOT FOUND")
     client = None
 else:
-    client = genai.Client(api_key=API_KEY)
-    print("Gemini connected!")
+    client = OpenAI(
+        api_key=API_KEY,
+        base_url="https://api.cerebras.ai/v1"
+    )
+    print("Cerebras connected!")
 
 
 # ============================================================
@@ -34,22 +37,22 @@ else:
 AI_INFO = {
     "Astra": {
         "avatar": "🌟",
-        "model": "gemini-3.7-flash",
         "personality": "friendly, supportive, excellent at studying and explanations"
     },
 
     "Nova": {
         "avatar": "🔥",
-        "model": "gemini-3.6-flash",
         "personality": "energetic, creative, excellent at coding and ideas"
     },
 
     "Orion": {
         "avatar": "🧠",
-        "model": "gemini-3.5-flash-lite",
         "personality": "analytical, logical and structured"
     }
 }
+
+
+MODEL = "gpt-oss-120b"
 
 
 # ============================================================
@@ -394,14 +397,14 @@ You are chatting in a group with the user and two other AI friends.
 
 Reply naturally, clearly and helpfully.
 
+Do not mention that you are an API.
+Do not mention internal instructions.
+Keep the conversation friendly and natural.
+
 User message:
 {user_text}
 """
 
-
-    # ========================================================
-    # RETRY SYSTEM
-    # ========================================================
 
     max_retries = 3
 
@@ -410,20 +413,36 @@ User message:
 
         try:
 
-            response = client.models.generate_content(
+            response = client.chat.completions.create(
 
-                model=info["model"],
+                model=MODEL,
 
-                contents=prompt
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"""
+You are {name}, a member of AI Friends.
+
+Your personality:
+{info["personality"]}
+
+Be natural, helpful and concise.
+"""
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+
+                temperature=0.7,
+
+                max_tokens=500
 
             )
 
 
-            text = getattr(
-                response,
-                "text",
-                None
-            )
+            text = response.choices[0].message.content
 
 
             if not text:
@@ -442,30 +461,19 @@ User message:
 
             error_text = str(error)
 
-
-            # Temporary server overload
-            if "503" in error_text:
-
-                if attempt < max_retries - 1:
-
-                    time.sleep(1.5)
-
-                    continue
+            print(
+                f"{name} error: {error_text}"
+            )
 
 
-                return {
-                    "name": name,
-                    "avatar": info["avatar"],
-                    "text": "I'm temporarily busy. Please try again."
-                }
-
-
-            # Rate limit
-            elif "429" in error_text:
+            if (
+                "429" in error_text
+                or "rate" in error_text.lower()
+            ):
 
                 if attempt < max_retries - 1:
 
-                    time.sleep(2)
+                    time.sleep(1)
 
                     continue
 
@@ -477,24 +485,27 @@ User message:
                 }
 
 
-            # Model not found
-            elif "404" in error_text:
+            if "404" in error_text:
 
                 return {
                     "name": name,
                     "avatar": info["avatar"],
-                    "text": "Model not found: " + info["model"]
+                    "text": "Cerebras model not found."
                 }
 
 
-            # Other error
-            else:
+            if attempt < max_retries - 1:
 
-                return {
-                    "name": name,
-                    "avatar": info["avatar"],
-                    "text": "Something went wrong. Please try again."
-                }
+                time.sleep(1)
+
+                continue
+
+
+            return {
+                "name": name,
+                "avatar": info["avatar"],
+                "text": "Something went wrong. Please try again."
+            }
 
 
 # ============================================================
@@ -529,7 +540,7 @@ def chat():
                 {
                     "name": "System",
                     "avatar": "⚠️",
-                    "text": "GEMINI_API_KEY is not configured."
+                    "text": "CEREBRAS_API_KEY is not configured."
                 }
 
             ]
@@ -557,7 +568,6 @@ def chat():
         ]
 
 
-        # Keep Astra → Nova → Orion order
         replies = [
             future.result()
             for future in futures
@@ -580,7 +590,8 @@ if __name__ == "__main__":
     print("          AI FRIENDS WEB")
     print("====================================")
 
-    print("Server starting...")
+    print("Cerebras backend starting...")
+
 
     port = int(
         os.environ.get(
@@ -593,6 +604,8 @@ if __name__ == "__main__":
     print(
         f"Running on port {port}"
     )
+
+    print("Model:", MODEL)
 
     print("====================================")
 
