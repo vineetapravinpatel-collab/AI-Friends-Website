@@ -596,8 +596,7 @@ Rules:
 )
 def chat():
 
-    data =
-        request.get_json(silent=True) or {}
+    data = request.get_json(silent=True) or {}
 
 
     user_text = (
