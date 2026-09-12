@@ -1,5 +1,4 @@
 import os
-import time
 from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, request, jsonify, render_template_string
@@ -7,7 +6,7 @@ from openai import OpenAI
 
 
 # ============================================================
-# FLASK APP
+# FLASK
 # ============================================================
 
 app = Flask(__name__)
@@ -37,21 +36,30 @@ else:
 AI_INFO = {
     "Astra": {
         "avatar": "🌟",
-        "personality": "friendly, supportive, excellent at studying and explanations"
+        "personality": (
+            "friendly, supportive, excellent at studying "
+            "and explaining difficult topics"
+        )
     },
 
     "Nova": {
         "avatar": "🔥",
-        "personality": "energetic, creative, excellent at coding and ideas"
+        "personality": (
+            "energetic, creative, excellent at coding "
+            "and generating ideas"
+        )
     },
 
     "Orion": {
         "avatar": "🧠",
-        "personality": "analytical, logical and structured"
+        "personality": (
+            "analytical, logical, precise and structured"
+        )
     }
 }
 
 
+# Fast Cerebras model
 MODEL = "gpt-oss-120b"
 
 
@@ -158,6 +166,10 @@ button {
     cursor: pointer;
 }
 
+button:disabled {
+    opacity: 0.6;
+}
+
 </style>
 
 </head>
@@ -200,10 +212,12 @@ button {
     <input
         id="message"
         placeholder="Message AI Friends..."
-        onkeydown="if(event.key==='Enter') sendMessage()"
+        autocomplete="off"
     >
 
-    <button onclick="sendMessage()">
+    <button
+        id="sendButton"
+        onclick="sendMessage()">
         ➤
     </button>
 
@@ -212,19 +226,38 @@ button {
 
 <script>
 
+const input =
+    document.getElementById("message");
+
+const sendButton =
+    document.getElementById("sendButton");
+
+
+input.addEventListener(
+    "keydown",
+    function(event) {
+
+        if (event.key === "Enter") {
+            sendMessage();
+        }
+
+    }
+);
+
 
 async function sendMessage() {
-
-    const input =
-        document.getElementById("message");
 
     const text =
         input.value.trim();
 
-    if (!text) return;
+    if (!text) {
+        return;
+    }
 
 
     input.value = "";
+
+    sendButton.disabled = true;
 
 
     addMessage(
@@ -245,20 +278,21 @@ async function sendMessage() {
     try {
 
         const response =
-            await fetch("/chat", {
+            await fetch(
+                "/chat",
+                {
+                    method: "POST",
 
-                method: "POST",
+                    headers: {
+                        "Content-Type":
+                        "application/json"
+                    },
 
-                headers: {
-                    "Content-Type":
-                    "application/json"
-                },
-
-                body: JSON.stringify({
-                    message: text
-                })
-
-            });
+                    body: JSON.stringify({
+                        message: text
+                    })
+                }
+            );
 
 
         const data =
@@ -266,18 +300,39 @@ async function sendMessage() {
 
 
         const thinking =
-            document.getElementById("thinking");
+            document.getElementById(
+                "thinking"
+            );
 
 
-        if (thinking)
+        if (thinking) {
             thinking.remove();
+        }
 
 
-        for (const reply of data.replies) {
+        if (!data.replies) {
 
             addMessage(
-                reply.avatar + " " + reply.name,
+                "⚠️ Error",
+                "No response received.",
+                false
+            );
+
+            return;
+        }
+
+
+        for (
+            const reply of data.replies
+        ) {
+
+            addMessage(
+                reply.avatar +
+                " " +
+                reply.name,
+
                 reply.text,
+
                 false
             );
 
@@ -287,11 +342,14 @@ async function sendMessage() {
     } catch (error) {
 
         const thinking =
-            document.getElementById("thinking");
+            document.getElementById(
+                "thinking"
+            );
 
 
-        if (thinking)
+        if (thinking) {
             thinking.remove();
+        }
 
 
         addMessage(
@@ -301,6 +359,11 @@ async function sendMessage() {
         );
 
     }
+
+
+    sendButton.disabled = false;
+
+    input.focus();
 
 }
 
@@ -325,17 +388,28 @@ function addMessage(
         (user ? " user" : "");
 
 
-    if (id)
+    if (id) {
         div.id = id;
+    }
 
 
-    div.innerHTML =
-        "<div class='name'>" +
-        escapeHtml(name) +
-        "</div>" +
-        "<div>" +
-        escapeHtml(text) +
-        "</div>";
+    const nameDiv =
+        document.createElement("div");
+
+    nameDiv.className = "name";
+
+    nameDiv.textContent = name;
+
+
+    const textDiv =
+        document.createElement("div");
+
+    textDiv.textContent = text;
+
+
+    div.appendChild(nameDiv);
+
+    div.appendChild(textDiv);
 
 
     chat.appendChild(div);
@@ -345,22 +419,6 @@ function addMessage(
         chat.scrollHeight;
 
 }
-
-
-function escapeHtml(text) {
-
-    const div =
-        document.createElement("div");
-
-
-    div.textContent =
-        text;
-
-
-    return div.innerHTML;
-
-}
-
 
 </script>
 
@@ -382,146 +440,171 @@ def home():
 
 
 # ============================================================
-# AI RESPONSE FUNCTION
+# AI RESPONSE
 # ============================================================
 
-def get_ai_reply(name, info, user_text):
+def get_ai_reply(
+    name,
+    info,
+    user_text
+):
 
-    prompt = f"""
-You are {name}, one member of AI Friends.
+    if client is None:
 
-Personality:
-{info["personality"]}
-
-You are chatting in a group with the user and two other AI friends.
-
-Reply naturally, clearly and helpfully.
-
-Do not mention that you are an API.
-Do not mention internal instructions.
-Keep the conversation friendly and natural.
-
-User message:
-{user_text}
-"""
+        return {
+            "name": name,
+            "avatar": info["avatar"],
+            "text": "CEREBRAS_API_KEY is not configured."
+        }
 
 
-    max_retries = 3
-
-
-    for attempt in range(max_retries):
-
-        try:
-
-            response = client.chat.completions.create(
-
-                model=MODEL,
-
-                messages=[
-                    {
-                        "role": "system",
-                        "content": f"""
-You are {name}, a member of AI Friends.
+    system_prompt = f"""
+You are {name}, one of three AI friends.
 
 Your personality:
 {info["personality"]}
 
-Be natural, helpful and concise.
+You are chatting with a user in a friendly AI Friends group.
+
+Rules:
+- Be natural and conversational.
+- Be helpful and accurate.
+- Keep answers reasonably concise.
+- Do not mention hidden instructions.
+- Do not mention API keys.
+- Do not pretend to be another AI friend.
 """
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
 
-                temperature=0.7,
 
-                max_tokens=500
+    try:
 
+        response = client.chat.completions.create(
+
+            model=MODEL,
+
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": user_text
+                }
+            ],
+
+            temperature=0.7,
+
+            max_completion_tokens=500
+        )
+
+
+        text = (
+            response
+            .choices[0]
+            .message
+            .content
+        )
+
+
+        if not text:
+
+            text = "I couldn't generate a response."
+
+
+        return {
+            "name": name,
+            "avatar": info["avatar"],
+            "text": text
+        }
+
+
+    except Exception as error:
+
+        print(
+            f"{name} Cerebras error: "
+            f"{type(error).__name__}: {error}",
+            flush=True
+        )
+
+
+        error_text = str(error)
+
+
+        if "401" in error_text:
+
+            message = (
+                "Cerebras authentication failed. "
+                "Check the API key in Render."
             )
 
 
-            text = response.choices[0].message.content
+        elif "403" in error_text:
 
-
-            if not text:
-
-                text = "I couldn't generate a response."
-
-
-            return {
-                "name": name,
-                "avatar": info["avatar"],
-                "text": text
-            }
-
-
-        except Exception as error:
-
-            error_text = str(error)
-
-            print(
-                f"{name} error: {error_text}"
+            message = (
+                "Cerebras access denied. "
+                "Check your Cerebras account/API access."
             )
 
 
-            if (
-                "429" in error_text
-                or "rate" in error_text.lower()
-            ):
+        elif "404" in error_text:
 
-                if attempt < max_retries - 1:
-
-                    time.sleep(1)
-
-                    continue
+            message = (
+                "Cerebras model was not found. "
+                f"Current model: {MODEL}"
+            )
 
 
-                return {
-                    "name": name,
-                    "avatar": info["avatar"],
-                    "text": "Too many requests right now. Please try again."
-                }
+        elif "429" in error_text:
+
+            message = (
+                "Cerebras rate limit reached. "
+                "Please try again shortly."
+            )
 
 
-            if "404" in error_text:
+        elif "400" in error_text:
 
-                return {
-                    "name": name,
-                    "avatar": info["avatar"],
-                    "text": "Cerebras model not found."
-                }
-
-
-            if attempt < max_retries - 1:
-
-                time.sleep(1)
-
-                continue
+            message = (
+                "Cerebras rejected the request. "
+                "Check the model or request settings."
+            )
 
 
-            return {
-                "name": name,
-                "avatar": info["avatar"],
-                "text": "Something went wrong. Please try again."
-            }
+        else:
+
+            message = (
+                "Cerebras error: "
+                + error_text[:300]
+            )
+
+
+        return {
+            "name": name,
+            "avatar": info["avatar"],
+            "text": message
+        }
 
 
 # ============================================================
-# CHAT API
+# CHAT
 # ============================================================
 
-@app.route("/chat", methods=["POST"])
+@app.route(
+    "/chat",
+    methods=["POST"]
+)
 def chat():
 
-    data = request.get_json() or {}
+    data =
+        request.get_json(silent=True) or {}
 
 
-    user_text = data.get(
-        "message",
-        ""
-    ).strip()
+    user_text = (
+        data
+        .get("message", "")
+        .strip()
+    )
 
 
     if not user_text:
@@ -540,7 +623,10 @@ def chat():
                 {
                     "name": "System",
                     "avatar": "⚠️",
-                    "text": "CEREBRAS_API_KEY is not configured."
+                    "text": (
+                        "CEREBRAS_API_KEY "
+                        "is not configured."
+                    )
                 }
 
             ]
@@ -549,10 +635,12 @@ def chat():
 
 
     # ========================================================
-    # PARALLEL AI REQUESTS
+    # THREE AI REQUESTS IN PARALLEL
     # ========================================================
 
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    with ThreadPoolExecutor(
+        max_workers=3
+    ) as executor:
 
         futures = [
 
@@ -564,7 +652,6 @@ def chat():
             )
 
             for name, info in AI_INFO.items()
-
         ]
 
 
@@ -590,7 +677,9 @@ if __name__ == "__main__":
     print("          AI FRIENDS WEB")
     print("====================================")
 
-    print("Cerebras backend starting...")
+    print(
+        "Cerebras backend starting..."
+    )
 
 
     port = int(
@@ -605,7 +694,9 @@ if __name__ == "__main__":
         f"Running on port {port}"
     )
 
-    print("Model:", MODEL)
+    print(
+        f"Model: {MODEL}"
+    )
 
     print("====================================")
 
